@@ -55,7 +55,7 @@
       <button id="startBtn">&#9654; Start Game</button>
       <button id="soundBtn">&#128266; Sound: On</button>
       <div id="msg">Flowers khao, energy lo, bees se bacho!</div>
-      <p class="hint">Keyboard: Arrow keys / WASD<br>Remote: upar wale buttons dabao<br>Pink +10, Sunflower +20, Purple +30, Golden +50<br>Combo: jaldi-jaldi flowers khao = x5 tak! 🛡 shield bee se bachata hai</p>
+      <p class="hint">Keyboard: Arrow keys / WASD<br>Remote: button TAP karo — har tap ek jhatka deta hai, hold karo to tez uro!<br>Pink +10, Sunflower +20, Purple +30, Golden +50<br>Combo: jaldi-jaldi flowers khao = x5 tak! 🛡 shield bee se bachata hai<br>Sting ke baad 3 sec safe (golden ring) — bees door hat jati hain!</p>
     </div>
   </div>
 <script>
@@ -67,6 +67,7 @@ let score = 0, best = +(localStorage.getItem('bflyBest') || 0);
 let timeLeft = 60, lives = 3, level = 1, running = false;
 let energy = 100, flap = 0, lastHurt = 0, windTimer = 0, nextLevelAt = 50;
 let combo = 1, lastCollect = 0, shield = false, shieldIn = 15;
+let invulnUntil = 0;
 const keys = {};
 const bf = { x: W/2, y: H/2 - 40, vx: 0, vy: 0, r: 30, accel: 0.35, max: 5.2 };
 const wind = { dir: 1, str: 0.4 };
@@ -97,7 +98,7 @@ function spawnCloud(){
 for (let i=0;i<3;i++) spawnCloud();
 function reset(){
   score=0; timeLeft=60; lives=3; level=1; energy=100; nextLevelAt=50;
-  combo=1; lastCollect=0; shield=false; shieldIn=15;
+  combo=1; lastCollect=0; shield=false; shieldIn=15; invulnUntil=0;
   bf.x=W/2; bf.y=H/2-40; bf.vx=0; bf.vy=0;
   flowers=[]; bees=[]; parts=[]; popups=[]; powerups=[];
   for(let i=0;i<5;i++) spawnFlower();
@@ -351,12 +352,12 @@ function loop(){
     bf.x = Math.max(bf.r, Math.min(W-bf.r, bf.x+bf.vx));
     bf.y = Math.max(bf.r, Math.min(H-bf.r, bf.y+bf.vy));
     if(ax||ay) energy = Math.max(0, energy-0.05);
-    else energy = Math.max(0, energy-0.015);
+    else energy = Math.min(100, energy+0.08);
     for(const b of bees){
       b.bz += 0.6;
       const d = dist(bf, b);
       const bs = 1.5 + level*0.25;
-      if(d < 130){
+      if(d < 130 && Date.now() > invulnUntil){
         b.vx += (bf.x-b.x)/d*0.12;
         b.vy += (bf.y-b.y)/d*0.12;
       }
@@ -407,10 +408,11 @@ function loop(){
     if(combo>1 && Date.now()-lastCollect>2500){ combo=1; updateHUD(); }
     const now=Date.now();
     for(const b of bees){
-      if(now-lastHurt>1500 && dist(bf,b)<bf.r+b.r-6){
+      if(now>invulnUntil && dist(bf,b)<bf.r+b.r-6){
         lastHurt=now;
         if(shield){
           shield=false;
+          invulnUntil = now + 1500;
           try{ playClick(); }catch(e){}
           document.getElementById('msg').textContent='🛡 Shield ne bacha liya!';
           updateHUD();
@@ -419,7 +421,15 @@ function loop(){
           playSting();
           updateHUD();
           bf.x=W/2; bf.y=H/2-40; bf.vx=0; bf.vy=0;
-          document.getElementById('msg').textContent='Ouch! Bee ne kata! Lives: '+lives;
+          invulnUntil = now + 3000;
+          for(const ob of bees){
+            if(dist(ob,bf)<240){
+              ob.x = Math.random()<0.5 ? rand(30,90) : rand(W-90,W-30);
+              ob.y = rand(30,H-60);
+              ob.vx = rand(-1,1); ob.vy = rand(-1,1);
+            }
+          }
+          document.getElementById('msg').textContent='Ouch! Bee ne kata! Lives: '+lives+' (3 sec safe!)';
           if(lives<=0){ endGame('Game Over! Bees ne hara diya. Score: '+score); }
         }
         break;
@@ -448,6 +458,13 @@ function loop(){
     ctx.strokeStyle='rgba(59,130,246,0.75)'; ctx.lineWidth=3;
     ctx.fillStyle='rgba(59,130,246,0.12)';
     ctx.beginPath(); ctx.arc(bf.x, bf.y, 48, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  if(Date.now() < invulnUntil){
+    ctx.save();
+    ctx.strokeStyle='rgba(255,215,0,0.9)'; ctx.lineWidth=3;
+    ctx.setLineDash([8,6]);
+    ctx.beginPath(); ctx.arc(bf.x, bf.y, 52, 0, Math.PI*2); ctx.stroke();
     ctx.restore();
   }
 }
@@ -525,13 +542,22 @@ document.getElementById('startBtn').addEventListener('click',()=>{
   },1000);
 });
 window.addEventListener('keydown',e=>{
+  if(!e.repeat) impulse(e.key.toLowerCase());
   keys[e.key.toLowerCase()]=true;
   if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase())) e.preventDefault();
 });
 window.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
+function impulse(key){
+  if(!running) return;
+  const imp=2.4;
+  if(key==='arrowup'||key==='w') bf.vy=Math.max(bf.vy-imp,-bf.max);
+  if(key==='arrowdown'||key==='s') bf.vy=Math.min(bf.vy+imp,bf.max);
+  if(key==='arrowleft'||key==='a') bf.vx=Math.max(bf.vx-imp,-bf.max);
+  if(key==='arrowright'||key==='d') bf.vx=Math.min(bf.vx+imp,bf.max);
+}
 function bindBtn(id,key){
   const el=document.getElementById(id);
-  const on=e=>{ e.preventDefault(); keys[key]=true; };
+  const on=e=>{ e.preventDefault(); keys[key]=true; impulse(key); };
   const off=e=>{ e.preventDefault(); keys[key]=false; };
   el.addEventListener('mousedown',on);
   el.addEventListener('mouseup',off);
